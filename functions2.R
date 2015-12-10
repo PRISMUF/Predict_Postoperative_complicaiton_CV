@@ -228,7 +228,7 @@ run_gams_model_PCA <- function(clean_data_pca,outcome,variance_prop=NULL){
   }
   proc_data <- as.data.frame(t$data) ; 
   colnames(proc_data) <- paste0("PC",1:ncol(proc_data))
-  s <- as.formula(paste0("outcome~",paste0(colnames(proc_data),collapse = "+")))
+  s <- as.formula(paste0("outcome~",paste0("s(",colnames(proc_data),",k=5)",collapse = "+")))
   proc_data$outcome <- outcome ; rm(t)
   response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
   fm <- binomial() ; fm$link <- "logit"
