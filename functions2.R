@@ -1,5 +1,5 @@
 # Set of user defined functions for model building and performance reporting
-# Created by Paul Thottakkara : Last Updated on 10 December 2015 
+# Created by Paul Thottakkara : Last Updated on 2 December 2015 
 
 # develop gams model and report performance
 run_gams_model <- function(proc_data,feature_list){
@@ -173,7 +173,7 @@ gen_proc_data_PCA <- function(raw_data,feature_list,outcome){
   # replace missing values in admission source
   raw_data$Admission_Source[raw_data$Admission_Source==""] <- "outpatient"
   raw_data <- raw_data[,which(colnames(raw_data)%in%feature_list[,1])]
-  raw_data$outcome <- t ; outcome <- t ; rm(t)
+  outcome <- t ; rm(t)
   
   if(sum(colnames(raw_data)%in%feature_list[,1])!=nrow(feature_list)){
     print("fields mismatch in feature list and raw data, following not found in raw data")
