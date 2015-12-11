@@ -254,3 +254,43 @@ run_gams_model_PCA <- function(clean_data_pca,outcome,variance_prop=NULL){
   return(list("model"=model,"testResults_rawData"=test_result,"trainResults_rawData"=train_result,"predicted_values"=pred_val,"status"="PASS"))
 }
 
+# perform vif test
+vif_test <- function(raw_data,outcome,feature_list){
+  t <- rep(0,length(outcome)) ; t[outcome==1] <- 1 ; outcome <- t 
+  # replace missing values in admission source
+  raw_data$Admission_Source[raw_data$Admission_Source==""] <- "outpatient"
+  raw_data <- raw_data[,which(colnames(raw_data)%in%feature_list[,1])]
+  
+  if(sum(colnames(raw_data)%in%feature_list[,1])!=nrow(feature_list)){
+    print("fields mismatch in feature list and raw data, following not found in raw data")
+    print(as.character(feature_list[which(!feature_list[,1]%in%colnames(raw_data)),1]))
+    print("execution terminated")
+    return(NULL)
+  }
+  
+  for(i in 1:nrow(feature_list)){
+    ind <- which(colnames(raw_data)==feature_list[i,1])
+    if(length(ind)==0){print(feature_list[i,1]);next}
+    if(length(ind)>1){ind <- ind[1]}
+    if(feature_list[i,2]=="num"){
+      temp <- outlier_detect(raw_data[,ind])
+      raw_data[,ind] <- as.numeric(temp$data) ; next
+    }
+    if(feature_list[i,2]=="cat"&feature_list[i,1]=="pr1c"){
+      t <- raw_data[,ind] ; t <- gsub("[^0-9]","",t)
+      d<-TrainProcedureFeature(t, outcome, 100) ; rm(t)
+      raw_data[,ind] <- as.numeric(d$procedures) ; next
+    }else{
+      t <- clean_categorical(raw_data[,ind])
+      d<-TrainCategoricalFeature(t, outcome, 100, 2)  ; rm(t)        
+      raw_data[,ind] <- as.numeric(d$d)	;
+    }
+  }
+  
+  x <- raw_data[,which(colnames(raw_data)%in%feature_list[,1])]
+  y <- outcome
+  t <- vif(y,x,mode="dense",trace = F,subsize = round(0.6*length(y),0))
+  selected_feat <- feature_list[t$select,]
+  return(selected_feat)
+  
+}
