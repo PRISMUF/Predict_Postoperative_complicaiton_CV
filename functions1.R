@@ -2,7 +2,7 @@
 # Created by Paul Thottakkara : Last Updated on Nov 30 2015 
 
 # libraries required
-library(mgcv) ; library(verification) ; library(VIF)
+library(mgcv) ; library(verification) ; library(VIF) ;library(e1071) ; library(randomForest)
 
 # Perfoming analysis using univariate models
 univ_analysis <- function(model_data,feat_all){
