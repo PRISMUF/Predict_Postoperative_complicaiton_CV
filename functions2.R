@@ -39,6 +39,186 @@ run_gams_model <- function(proc_data,feature_list){
   return(list("model"=model,"testResults_rawData"=test_result,"trainResults_rawData"=train_result,"predicted_values"=pred_val,"status"="PASS"))
 }
 
+run_gams_model_single_run <- function(proc_data,feature_list){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  fm <- binomial() ; fm$link <- "logit"
+  s <- "outcome~"
+  for(i in 1:nrow(feature_list)){
+    if(feature_list[i,2]=="num"){s <- paste0(s,"s(",feature_list[i,1],",k=5)+")}else{
+      s <- paste0(s,feature_list[i,1],"+")
+    }
+  }
+  s <- substr(s,1,nchar(s)-1) ; s <- as.formula(s)
+  
+  test_result <- NULL ; train_result <- NULL ; thres_tune <- round(sum(proc_data$outcome==1)/nrow(proc_data),3)
+  data_model <- proc_data;
+  train_ind <- sample(1:nrow(proc_data),floor(0.7*nrow(proc_data)))
+  print("Running GAMs model")
+  model = bam(formula = s,family = fm,data = data_model[train_ind,])
+  print("Model building completed")
+  pred <- predict(model,data_model,type="response") ; 
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+run_SVM_model_single_run <- function(proc_data,feature_list,cost,gamma){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  x <- proc_data[,which(colnames(proc_data)%in%feature_list[,1])];
+  y <- as.factor(proc_data$outcome)
+  print("Running SVM model")
+  result <- NULL
+  print(paste0("cost=",cost,",","gamma=",gamma)) ;
+  train_ind <- sample(1:nrow(x),floor(0.7*nrow(x)),replace = T) 
+  model = svm(x = x[train_ind,],y = y[train_ind],type = "C-classification", kernel ="radial",cost = cost,gamma=gamma,tolerance = 0.01,epsilon = 0.1,probability = TRUE)
+  print("Model building completed")
+  pred_temp <- predict(model,x,decision.values = TRUE,probability = T) ; 
+  pred <- attr(pred_temp, "probabilities") ; pred <- pred[,which(colnames(pred)==1)]
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+run_SVM_model_gridsearch_run <- function(proc_data,feature_list){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  x <- proc_data[,which(colnames(proc_data)%in%feature_list[,1])];
+  y <- as.factor(proc_data$outcome)
+  print("Running SVM model")
+  cost_values <- c(20,30) ; gamma_values <- c(0.15,0.2,0.125)
+  result <- NULL
+  for(i in 1:length(cost_values)){
+    for(j in 1:length(gamma_values)){
+      cost = cost_values[i] ; gamma = gamma_values[j]
+      print(paste0(i,":cost=",cost,",","gamma=",gamma)) ;
+      train_ind <- sample(1:nrow(x),floor(0.6*nrow(x)),replace = T) 
+      model = svm(x = x[train_ind,],y = y[train_ind],type = "C-classification", kernel ="radial",cost = cost,gamma=gamma,tolerance = 0.01,epsilon = 0.1,probability = TRUE)
+      for(k in 1:5){
+        test_ind <- sample(1:nrow(x),floor(0.3*nrow(x)),replace = T) 
+        pred_temp <- predict(model,x[test_ind,],decision.values = TRUE,probability = T) ; 
+        pred <- attr(pred_temp, "probabilities") ; pred <- pred[,which(colnames(pred)==1)]
+        pred_resp <- rep(0,length(pred)) ; pred_resp[which(pred>=0.5)] <- 1 ; y1 <- y[test_ind]
+        tab <- table(y1,pred_resp) ; acc <- round(100*sum(tab[c(1,4)])/sum(tab),1)
+        ppv <- round(100*sum((pred_resp==1&y1==1))/sum(pred_resp==1),1)
+        npv <- round(100*sum((pred_resp==0&y1==0))/sum(pred_resp==0),1)
+        temp <- cbind(cost,gamma,acc,ppv,npv) ; print(temp) ; result <- rbind(result,temp)
+      }
+    }
+  }
+  
+  print("Model building completed")
+  pred_temp <- predict(model,x,decision.values = TRUE,probability = T) ; 
+  pred <- attr(pred_temp, "probabilities") ; pred <- pred[,which(colnames(pred)==1)]
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"tunning_result"=result,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+run_RF_model_parameter_check <- function(proc_data,feature_list){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  x <- proc_data[,which(colnames(proc_data)%in%feature_list[,1])];
+  y <- as.factor(proc_data$outcome)
+  print("Running RF model")
+  ntree_values <- c(200,300,400) ; nodesize_values <- c(10,20,30)
+  result <- NULL
+  for(i in 1:length(ntree_values)){
+    for(j in 1:length(nodesize_values)){
+      ntree = ntree_values[i] ; nodesize = nodesize_values[j]
+      print(paste0(i,":no trees=",ntree,",","nodesizer=",nodesize)) ;
+      train_ind <- sample(1:nrow(x),floor(0.7*nrow(x)),replace = T) 
+      model = randomForest(x = x[train_ind,],y = as.factor(y[train_ind]),replace=TRUE,ntree=ntree,nodesize=nodesize)
+      for(k in 1:5){
+        test_ind <- sample(1:nrow(x),floor(0.3*nrow(x)),replace = T) 
+        pred <- predict(model,x[test_ind,],type="prob") ; pred <- pred[,which(colnames(pred)==1)]
+        pred_resp <- rep(0,length(pred)) ; pred_resp[which(pred>=0.5)] <- 1 ; y1 <- y[test_ind]
+        tab <- table(y1,pred_resp) ; acc <- round(100*sum(tab[c(1,4)])/sum(tab),1)
+        ppv <- round(100*sum((pred_resp==1&y1==1))/sum(pred_resp==1),1)
+        npv <- round(100*sum((pred_resp==0&y1==0))/sum(pred_resp==0),1)
+        temp <- cbind(ntree,nodesize,acc,ppv,npv) ; print(temp) ; result <- rbind(result,temp)
+      }
+    }
+  }
+  
+  print("Model building completed")
+  pred <- predict(model,x,type="prob") ; pred <- pred[,which(colnames(pred)==1)]
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"tunning_result"=result,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+run_RF_model_single_run <- function(proc_data,feature_list,ntree,nodesize){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  x <- proc_data[,which(colnames(proc_data)%in%feature_list[,1])];
+  y <- as.factor(proc_data$outcome)
+  print("Running RF model")
+  train_ind <- sample(1:nrow(x),floor(nrow(x)*0.7))
+  model = randomForest(x = x[train_ind,],y = as.factor(y[train_ind]),replace=TRUE,ntree=ntree,nodesize=nodesize)
+  print("Model building completed")
+  pred <- predict(model,x,type="prob") ; pred <- pred[,which(colnames(pred)==1)]
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+run_RF_model <- function(proc_data,feature_list,ntree,nodesize){
+  if("outcome"%in%colnames(proc_data)){print("outcome variable found")}else{
+    print("outcome variable missing");
+    return(list("model"=NULL,"testResults_rawData"=NULL,"trainResults_rawData"=NULL,"predicted_values"=NULL,"status"="FAIL"))
+  }
+  response <- rep(0,nrow(proc_data)) ; response[proc_data$outcome==1] <- 1
+  x <- proc_data[,which(colnames(proc_data)%in%feature_list[,1])];
+  y <- as.factor(proc_data$outcome)
+  test_result <- NULL ; train_result <- NULL ; thres_tune <- round(sum(proc_data$outcome==1)/nrow(proc_data),3)
+  data_model <- proc_data;
+  print("Running RF iterations to report training and test performance")
+  for(i in 1:10){
+    print(i) ; 
+    train_ind <- sample(1:nrow(data_model),size = floor(0.7*nrow(data_model)))
+    test_ind <- setdiff(1:nrow(data_model),train_ind)
+    model = randomForest(x = x[train_ind,],y = as.factor(y[train_ind]),mtry = 10,replace=TRUE,ntree=ntree,nodesize=nodesize,sampsize = floor(0.4*nrow(x)))
+    temp <- perf_rf(model,traindata=data_model[train_ind,],testdata=data_model[test_ind,],thres_tune)
+    train_result <- rbind(train_result,temp$train_result)
+    test_result <- rbind(test_result,temp$test_result)
+  }
+  print("Model building completed")
+  pred <- predict(model,data_model,type="prob") ; pred <- as.numeric(pred[,which(colnames(pred)==1)])
+  pred_val <- as.data.frame(cbind(response,pred)) ; colnames(pred_val) <- c("observed","predicted")
+  pred_val$observed <- rep(0,nrow(pred_val)) ; pred_val$observed[which(response==1)] <- 1
+  
+  print("+++++++++++++++++  Completed +++++++++++++++++++")
+  return(list("model"=model,"testResults_rawData"=test_result,"trainResults_rawData"=train_result,"predicted_values"=pred_val,"status"="PASS"))
+}
+
+
 # funciton to calculate the performance of gams model
 perf_gam <- function(model,traindata,testdata,thres_tune=NULL){
   if(is.null(thres_tune)){
@@ -59,8 +239,28 @@ perf_gam <- function(model,traindata,testdata,thres_tune=NULL){
   return(list("train_result"=train_result,"test_result"=test_result))
 }
 
+perf_rf <- function(model,traindata,testdata,thres_tune=NULL){
+  if(is.null(thres_tune)){
+    prev <- 0.5
+  }else{
+    prev <- as.numeric(thres_tune)
+  }
+  ind <- sample(1:nrow(traindata),floor(0.42*nrow(traindata)))
+  pred <- predict(model,traindata[ind,],type="prob") ; pred <- as.numeric(pred[,which(colnames(pred)==1)])
+  obser <- rep(0,length(ind)); obser[traindata$outcome[ind]==1] <- 1
+  
+  train_result <- measure_perform(pred,obser,prev)
+  
+  pred <- predict(model,testdata,type="prob") ; pred <- as.numeric(pred[,which(colnames(pred)==1)])
+  obser <- rep(0,nrow(testdata)) ; obser[testdata$outcome==1] <- 1
+  test_result <- measure_perform(pred,obser,prev)
+  
+  return(list("train_result"=train_result,"test_result"=test_result))
+}
+
 # funcitons for performance measure
 measure_perform <- function(pred,obser,prev){
+  if(length(pred)!=length(obser)){print("error in predicted variable : pred > length");print(length(pred))}
   results <- data.frame(matrix(nrow=1,ncol=6));  colnames(results) <- c("Accuracy","AUC","PPV","NPV","FALSE_Negtives","HL")
   acc <- ifelse(pred>prev,1,0)
   tab <- table(acc,obser)
